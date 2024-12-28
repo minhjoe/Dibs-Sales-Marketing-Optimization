@@ -62,14 +62,3 @@ Build a machine learning model to predict future sales:
 ## Tools and Technologies  
 
 - **Programming Language:** R  
-
----
-
-## Deliverables  
-
-1. **Analysis Report:**  
-   - Answers to business questions with supporting visualizations and insights.  
-2. **Predictive Model:**  
-   - Machine learning models with visualizations of predictions and performance metrics.  
-3. **Recommendations:**  
-   - Actionable strategies for improving sales and customer loyalty based on the analysis.  
