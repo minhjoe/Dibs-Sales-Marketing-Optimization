@@ -1,0 +1,851 @@
+---
+title: "Assignment 4 - Rmarkdown"
+author: "Huynh Quang Minh (Joe) Nguyen"
+date: "2024-05-29"
+output: html_document
+---
+
+```{r}
+#run needed package
+library(readr)
+library(tidyverse)
+library(dplyr)
+library(lubridate)
+library(janitor)
+library(ggplot2)
+library(scales)
+library(plotly)
+library(class)
+library(rpart)
+```
+
+
+Load and merge the data set
+
+```{r}
+# load the data set 
+Jan_sale =read_csv(file="01_Sales_Jan.csv") 
+Feb_sale =read_csv(file="02_Sales_Feb.csv")
+Mar_sale =read_csv(file="03_Sales_Mar.csv") 
+Apr_sale =read_csv(file="04_Sales_Apr.csv")
+May_sale =read_csv(file="05_Sales_May.csv") 
+Jun_sale =read_csv(file="06_Sales_Jun.csv")
+Jul_sale =read_csv(file="07_Sales_Jul.csv") 
+Aug_sale =read_csv(file="08_Sales_Aug.csv")
+Sep_sale =read_csv(file="09_Sales_Sep.csv") 
+Oct_sale =read_csv(file="10_Sales_Oct.csv")
+Nov_sale =read_csv(file="11_Sales_Nov.csv") 
+Dec_sale =read_csv(file="12_Sales_Dec.csv")
+
+# Combine all the data
+combined_data <- bind_rows(Jan_sale, Feb_sale, Mar_sale, Apr_sale, May_sale, Jun_sale,
+                           Jul_sale, Aug_sale, Sep_sale, Oct_sale, Nov_sale, Dec_sale)
+# Store the combined_data into new file
+new_data <- combined_data
+str(new_data)
+```
+
+
+Task 1: Data cleaning and wrangling
+```{r}
+
+# View rows with any missing values to decide on how to handle them
+new_data %>% filter(is.na('Order ID') | is.na('Product') | is.na('Quantity Ordered') | 
+                           is.na('Price Each') | is.na('Order Date') | is.na('Purchase Address'))
+
+# COLUMN 'Order ID'
+column_name <- "Order ID"
+# Remove NAs
+unique(new_data$`Order ID`)
+new_data <- new_data %>%
+  mutate(`Order ID` = ifelse(is.na(`Order ID`), NA, 
+                             gsub("[^0-9]", "", `Order ID`))) %>% 
+  filter(!is.na(`Order ID`))
+# Convert to numeric
+new_data$`Order ID` <- as.numeric(new_data$'Order ID')
+
+
+# COLUMN 'Product'
+unique(new_data$'Product')
+column_name <- "Product"
+ 
+# Fix the misspelling values
+new_data <- new_data %>% 
+  mutate(Product = na_if(Product, "Fault error")) %>% 
+  mutate(Product = na_if(Product, "### syste error###")) %>% 
+  mutate(Product = na_if(Product, "##system error##")) %>% 
+  mutate(Product = na_if(Product, "Product")) %>% 
+  mutate(Product = case_when(
+    Product == "AA Batteries (4-pack)" ~ "AA Batteries (4-pack)",
+    Product == "AAA Batteries (4pack)" ~ "AAA Batteries (4-pack)",
+    Product == "Wired Headphoness" ~ "Wired Headphones",
+    Product == "Goo0gle Phone" ~ "Google Phone",
+    Product == "LightCharging Cable" ~ "Lightning Charging Cable",
+    Product == "USBC Charging Cable" ~ "USB-C Charging Cable",
+    Product == "IPhone" ~ "iPhone",
+    TRUE ~ Product  ))
+
+new_data <- subset(new_data, !is.na(Product))
+
+
+
+# COLUMN 'Quantity Ordered'
+unique(new_data$`Quantity Ordered`)
+new_data <- new_data %>%
+  mutate(`Quantity Ordered` = gsub("[^0-9.-]", "", `Quantity Ordered`)) %>% 
+  mutate(`Quantity Ordered` = na_if(`Quantity Ordered`, "0")) 
+# Convert to numeric
+new_data$`Quantity Ordered` <- as.numeric(new_data$`Quantity Ordered`)
+
+
+
+# COLUMN 'Price Each'
+unique(new_data$`Price Each`)
+column_name <- "Price Each"
+
+new_data <- new_data %>%
+  mutate(`Price Each` = na_if(`Price Each`, "0")) %>% 
+  mutate(`Price Each` = gsub("[^0-9.]", "", `Price Each`)) %>% 
+  mutate(`Price Each` = as.numeric(`Price Each`)) %>% 
+  mutate(`Price Each`= round(`Price Each`, 2))
+
+
+# COLUMN 'Purchase Address'
+column_name <- "Purchase Address"
+# Split the column
+split_address <- str_split(new_data$'Purchase Address', ", ", simplify = TRUE)
+# Assign each part of the split address to a new column
+new_data$Street <- split_address[, 1]
+new_data$City <- split_address[, 2]
+new_data$State <- split_address[, 3]
+
+# Column 'Street'
+new_data <- new_data %>% 
+  mutate(Street = na_if(Street, "N/A"))
+# Column 'City'
+unique(new_data$City)
+# Fix the misspelling values
+new_data <- new_data %>% 
+  mutate(City = na_if(City, "")) %>% 
+  mutate(City = case_when(
+    City == "Las Angeles" ~ "Los Angeles",
+    City == "SanFrancisco" ~ "San Francisco",
+    TRUE ~ City  ))
+# Column 'State'
+unique(new_data$State)
+new_data <- new_data %>% 
+  mutate(State = na_if(State, "")) 
+# Remove the postcode
+new_data$State <- sub("\\s+\\d{5}$", "", new_data$State)
+
+# Remove the Purchase Address column since we have split it into 3 separate columns
+new_data$`Purchase Address` <- NULL
+
+
+
+# COLUMN 'Order Date'
+column_name <- "Order Date"
+# For column Order Date
+split_date_time <- str_split(new_data$'Order Date', " ", simplify = TRUE)
+
+# Assign each part of the split date and time to a new column
+new_data$'Order Date' <- split_date_time[, 1]
+new_data$Time <- split_date_time[, 2]
+
+# Convert the 'date' column to date format
+# Assumes dates are in the format "mm/dd/yyyy"
+new_data$'Order Date' <- mdy(new_data$'Order Date')
+new_data$'Order Date' <- format(new_data$'Order Date', "%m/%d/%Y")
+new_data$'Order Date' <- as.Date(new_data$'Order Date', format="%m/%d/%Y")
+
+# Convert the 'time' column to time format
+# Assumes times are in the format "hh:mm:ss"
+new_data$Time <- format(strptime(new_data$Time, format = "%H:%M"), format = "%H:%M")
+
+
+# To remove unwanted dates
+dates_to_remove <- as.Date(c('2001-12-28', '2028-11-17', '2020-01-01'))
+
+# Create a subset of the data frame excluding the dates to remove
+new_data <- new_data[!new_data$'Order Date' %in% dates_to_remove, ]
+
+new_data <- new_data %>%
+  filter(!(!!sym(column_name) %in% c('2001-12-28', '2028-11-17', '2020-01-01')))
+
+
+# Separate and create new columns for Year, Month, Day in Order Date
+new_data$Year <- format(new_data$`Order Date`, "%Y")
+new_data$Month <- format(new_data$`Order Date`, "%m")
+new_data$Day <- format(new_data$`Order Date`, "%d")
+
+# Double check the format of the columns
+str(new_data)
+new_data$`Year` <- as.numeric(new_data$`Year`)
+new_data$`Month` <- as.numeric(new_data$`Month`)
+new_data$`Day` <- as.numeric(new_data$`Day`)
+
+
+# Now, we can know which month the data is based on the Month (01 = January)
+
+# change the column name
+new_data <- new_data %>% clean_names()
+
+# Check for missing values
+sum(is.na(new_data))
+#Remove rows with any null values from any columns
+new_data <- na.omit(new_data)
+
+write_csv(new_data,"Clean_Data.csv")
+```
+
+Task 2: 
+```{r}
+clean_data = read_csv(file="Clean_Data.csv") 
+str(clean_data)
+
+#Find the sales for each product
+clean_data$sales <- clean_data$`quantity_ordered` * clean_data$`price_each`
+
+#Q1: The best/worst Year for sales and How Much (a+b)
+list_year <- clean_data %>%
+  group_by(year) %>%
+  summarize(total_sales = sum(sales, na.rm = TRUE)) %>%
+  arrange(desc(total_sales))
+
+# Print the best year
+best_year <- list_year %>%
+  slice(1)
+print(best_year)
+
+# Print the worst year
+worst_year <- list_year %>%
+  slice(3)
+print(worst_year)
+
+
+#Q2: In the best year of sales, the best/worst month for sales + How much (c & d)
+#Get the best year
+best_year <- clean_data %>%
+  group_by(year) %>%
+  summarize(total_sales = sum(sales, na.rm = TRUE)) %>%
+  arrange(desc(total_sales)) %>%
+  slice(1) %>%
+  pull(year)
+
+#Filter the data set with observations in best year 
+data_best_year <- clean_data %>%
+  filter(year == best_year)
+
+#Get list of months and its total sales
+list_month <- data_best_year %>%
+  group_by(month) %>%
+  summarize(total_sales = sum(sales, na.rm = TRUE)) %>%
+  arrange(desc(total_sales))
+
+# Print the best month
+best_month <- list_month %>%
+  slice(1)
+print(best_month)
+
+# Print the worst month
+worst_month <- list_month %>%
+  slice(12)
+print(worst_month)
+
+
+#Q3: City had the most sales in 2019/City had the worst sales in 2019
+# Calculate total sales for each city within the best year
+list_city <- data_best_year %>%
+  group_by(city) %>%
+  summarize(total_sales = sum(sales, na.rm = TRUE)) %>%
+  arrange(desc(total_sales)) 
+
+# Print the best city 
+best_city <- list_city %>%
+  slice(1)
+print(best_city)
+
+# Print the best city 
+worst_city <- list_city %>%
+  slice(9)
+print(worst_city)
+
+
+#Q4: Time should Dibs business be displaying advertisements in 2019
+# Extract hour from the time data
+data_best_year_hour <- data_best_year %>%
+  mutate(hour = hour(hms(time)))
+
+# Calculate total sales for each hour within the best year
+list_hour <- data_best_year_hour %>%
+  group_by(hour) %>%
+  summarize(total_sales = sum(sales, na.rm = TRUE)) %>%
+  arrange(desc(total_sales)) 
+
+# Print the best hour
+best_hour <- list_hour %>%
+  slice(1)
+print(best_hour)
+
+# Print the worst hour
+worst_hour <- list_hour %>%
+  slice(24)
+print(worst_hour)
+
+
+#Q5: Which products are most often sold together?
+# Filter out orders with a single product
+order_products <- clean_data %>%
+  group_by(order_id) %>%
+  filter(n() > 1)
+
+# Create a new dataframe with order_id and grouped products
+order_products_grouped <- order_products %>%
+  group_by(order_id) %>%
+  summarise(grouped = paste(product, collapse = ",")) %>%
+  distinct()
+
+# Generate combinations of products
+product_combinations <- str_split(order_products_grouped$grouped, ",") %>%
+  lapply(function(x) combn(x, 2, simplify = FALSE)) %>%
+  unlist(recursive = FALSE)
+
+# Count the frequency of each product combination
+combination_counts <- table(unlist(lapply(product_combinations, function(x) paste(sort(x), collapse = ", "))))
+
+# Convert to a data frame for better readability
+combination_counts_df <- as.data.frame(combination_counts, stringsAsFactors = FALSE) %>%
+  arrange(desc(Freq)) %>%
+  rename("Product Combination" = Var1, "Frequency" = Freq)
+
+# Display the results
+print(head(combination_counts_df, 10))
+
+#Q6: Overall which product sold the most/least and why do you think it has sold the most/least measured by quantity ordered in 2019
+# Calculate total quantity sold for each product
+list_product_qqordered <- data_best_year %>%
+  group_by(product) %>%
+  summarize(total_quantity_sold = sum(`quantity_ordered`, na.rm = TRUE)) %>%
+  arrange(desc(total_quantity_sold)) 
+
+# Print the most/least sold product
+best_product <- list_product_qqordered %>%
+  slice(1)
+print(best_product)
+worst_product <- list_product_qqordered %>%
+  slice(19)
+print(worst_product)
+
+#Q7: Overall which product sold the most/least and why do you think it has sold the most/least measured by sales in 2019
+# Calculate total quantity sold for each product
+list_product_sales <- data_best_year %>%
+  group_by(product) %>%
+  summarize(total_sales = sum(`sales`, na.rm = TRUE)) %>%
+  arrange(desc(total_sales)) 
+
+# Print the most/least sold product
+best_product <- list_product_sales %>%
+  slice(1)
+print(best_product)
+worst_product <- list_product_sales %>%
+  slice(19)
+print(worst_product)
+
+```
+
+
+Task 3: Data visualistion
+```{r}
+str(clean_data)
+
+#Question 1: Monthly sales trend vs monthly average sales
+
+# Calculate total sales for each order
+df1 <- clean_data %>%
+  mutate(quantity_ordered = as.numeric(quantity_ordered)) %>%
+  mutate(price_each = as.numeric(price_each)) %>%
+  mutate(Sales = quantity_ordered * price_each)
+
+# Group by month
+monthly_sales <- df1 %>%
+  group_by(month) %>%
+  summarise(Total_Sales = sum(Sales), Average_Sales = mean(Sales))
+
+#Create chart
+
+ggplot(monthly_sales, aes(x = month, y = Total_Sales, fill = Total_Sales)) +
+  geom_bar(stat = "identity") +
+  geom_line(aes(y = Average_Sales * 20000), color = "#4cc9f0", size = 1) +
+  scale_fill_gradient(low = "#4cc9f0", high = "#f72585", breaks = seq(0, 4500000, 1500000), 
+                      labels = scales::comma) +
+  labs(x = "Month", y = "Total Sales", 
+       title = "Monthly Sales Trend vs Monthly Average Sales") +
+  scale_y_continuous(sec.axis = sec_axis(~.*0.00005, name = "Average Sales")) +
+  theme_minimal() + 
+  theme(plot.title = element_text(size = 13, face = "bold"), 
+        plot.subtitle = element_text(size = 12.5, face = "italic"),
+        axis.title.x = element_text(size = 12), axis.title.y = element_text(size = 12),
+        axis.text.x = element_text(size=9.8),
+        legend.title=element_text(size = 12))+
+  scale_x_continuous(name="Month", breaks = 1:12) + 
+  ggtitle("Monthly Sales Trend vs Monthly Average Sales.")
+
+
+#Question 2: Sales by state
+
+# Group by state and calculate total sales
+state_sales <- df1 %>%
+  group_by(state) %>%
+  summarise(Total_Sales = sum(Sales))
+
+# Create pie chart
+state_sales$percentage <- state_sales$Total_Sales / sum(state_sales$Total_Sales) * 100
+
+ggplot(state_sales, aes(x = "", y = Total_Sales, fill = state)) +
+  geom_bar(width = 1, stat = "identity") +
+  coord_polar("y", start = 0) +
+  theme_void() +
+  geom_text(data = subset(state_sales, percentage > 5), 
+            aes(label = paste0(round(percentage, 1), "%")), 
+            position = position_stack(vjust = 0.6), angle = 30, size = 3) +
+  theme(legend.position = "bottom",
+        plot.title = element_text(size = 13, face = "bold", hjust = 0.5), 
+        plot.subtitle = element_text(size = 12.5, face = "italic", hjust = 0.5),
+        legend.title=element_text(size = 12)) +
+  labs(fill = "State", 
+       title = "Sales by state.")
+
+#
+
+
+#Question 3: Top 10 products sold in the best year of sales
+
+# Filter data for the best year of sales
+df_best_year <- df1[df1$year == 2019,]
+
+# Calculate total quantity ordered for each product
+product_sales <- df_best_year %>%
+  group_by(product) %>%
+  summarise(Total_Quantity = sum(quantity_ordered))
+
+# Filter for top 10 products
+top_products <- product_sales %>%
+  arrange(desc(Total_Quantity)) %>%
+  head(10)
+
+# Create bar chart
+ggplot(top_products, aes(x = reorder(product, Total_Quantity), y = Total_Quantity, fill = Total_Quantity)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  scale_fill_gradient(low = "#4cc9f0", high = "#f72585", breaks = seq(0, 35000, 15000), 
+                      labels = scales::comma) +
+  theme_minimal()+
+  theme(plot.title = element_text(size = 13, face = "bold"), 
+        plot.subtitle = element_text(size = 12.5, face = "italic"),
+        axis.title.x = element_text(size = 12), axis.title.y = element_text(size = 12),
+        axis.text.x = element_text(size=9.8),
+        legend.title=element_text(size = 12)) +
+  scale_x_discrete(name="Product name") +
+  scale_y_continuous(name="Number of Quantity Ordered", limits=c(0,35000), breaks=seq(0,32000, 8000))+
+  ggtitle("Top 10 products sold in quantity.") +
+  theme(legend.position="bottom")
+
+
+#Top 10 value of products sold in year
+
+product_sales_value <- df_best_year %>%
+  group_by(product) %>%
+  summarise(Total_Sales = sum(quantity_ordered * price_each))
+
+# Filter top 10 products by total sales
+top_10_products_value <- product_sales_value %>%
+  arrange(desc(Total_Sales)) %>%
+  head(10)
+
+ggplot(top_10_products_value, aes(x = reorder(product, Total_Sales), y = Total_Sales, fill = Total_Sales)) +
+  geom_bar(stat = "identity") +
+  scale_fill_gradient(low = "#4cc9f0", high = "#f72585", breaks = seq(0, 8500000, 5000000), 
+                      labels = scales::comma) +
+  coord_flip()+
+  theme_minimal()+
+  theme(plot.title = element_text(size = 13, face = "bold"), 
+        plot.subtitle = element_text(size = 12.5, face = "italic"),
+        axis.title.x = element_text(size = 12), axis.title.y = element_text(size = 12),
+        axis.text.x = element_text(size=9.8),
+        legend.title=element_text(size = 12)) +
+  scale_x_discrete(name="Product name") +
+  scale_y_continuous(name="Total value sales", limits=c(0,8500000), breaks=seq(0,8500000, 2000000))+
+  ggtitle("Top 10 products sold in value.") +
+  theme(legend.position="bottom")
+
+
+##
+# Function to get top 10 products in each month
+get_top_products <- function(data) {
+  data %>%
+    arrange(desc(Total_Quantity)) %>%
+    head(9)
+}
+
+
+# Calculate total quantity ordered for each product in each month
+monthly_product_sales <- df1 %>%
+  group_by(month, product) %>%
+  summarise(Total_Quantity = sum(quantity_ordered))
+
+# Calculate total quantity ordered for each product
+total_product_sales <- df1 %>%
+  group_by(product) %>%
+  summarise(Total_Quantity = sum(quantity_ordered))
+
+# Get top 10 products in each month
+monthly_product_sales_top <- monthly_product_sales %>%
+  group_by(month) %>%
+  do(get_top_products(.))
+
+# Create stacked bar chart
+ggplot(monthly_product_sales_top, aes(x = month, y = Total_Quantity, fill = product)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Month", y = "Total Quantity", 
+       title = "Monthly Sales of Top 10 Products", fill = "Product") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 13, face = "bold"), 
+        plot.subtitle = element_text(size = 12.5, face = "italic"),
+        axis.title.x = element_text(size = 12), axis.title.y = element_text(size = 12),
+        axis.text.x = element_text(size=9.8),
+        legend.title=element_text(size = 12)) +
+  scale_x_continuous(name="Month", breaks = 1:12) +
+  scale_y_continuous(name="Quantity Ordered", limits=c(0,25000), breaks=seq(0,25000, 6000))+
+  ggtitle("Top 10 products sold in each month.")
+
+
+# Create a list of products that appear in the top 10 list in each month
+monthly_top_products <- monthly_product_sales_top %>%
+  group_by(product) %>%
+  summarise(Months_Appeared = n_distinct(month))
+
+print(monthly_top_products)
+
+# Filter for products that only appear in certain months (less than 12 months)
+certain_month_products <- monthly_top_products %>%
+  filter(Months_Appeared < 12)
+
+print(certain_month_products)
+
+# Get all months
+all_months <- unique(monthly_product_sales$month)
+
+# Function to get months not appeared
+get_months_not_appeared <- function(data) {
+  not_appeared_months <- setdiff(all_months, data$month)
+  return(not_appeared_months)
+}
+
+# Get months not appeared for each product
+product_not_appeared_months <- certain_month_products %>%
+  left_join(monthly_product_sales_top, by = "product") %>%
+  group_by(product) %>%
+  do(data.frame(Months_Not_Appeared = get_months_not_appeared(.)))
+
+print(product_not_appeared_months)
+
+
+#Question 4: Monthly order trend vs monthly average order
+
+# Calculate total and average orders for each month
+monthly_orders <- df1 %>%
+  group_by(month) %>%
+  summarise(Total_Orders = n(), AvgItems = mean(quantity_ordered))
+
+
+#Compare Monthly Sales and Average Sales
+ggplot(monthly_orders, aes(x =month, y = Total_Orders, fill = Total_Orders)) +
+  geom_bar(stat = "identity") +
+  labs( x = "Month", y = "Total Orders", 
+        title = "Monthly Order Trend." ) +
+  scale_fill_gradient(low = "#4cc9f0", high = "#f72585",
+                      labels = scales::comma) +
+  theme_minimal() +
+  theme(panel.grid.major = element_blank(),plot.title = element_text(size = 13, face = "bold"), 
+        plot.subtitle = element_text(size = 12.5, face = "italic"),
+        axis.title.x = element_text(size = 12), axis.title.y = element_text(size = 12),
+        axis.text.x = element_text(size=9.8),
+        legend.title=element_text(size = 12))+
+  scale_x_continuous(name="Month", breaks = 1:12)
+
+ggplot(monthly_orders, aes(x =month)) +
+  geom_line(aes(y = AvgItems), color = "#f72585", size = 1)+
+  labs( x = "Month", y = "Average Orders", 
+        title = "Monthly Order Trend." )  +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 13, face = "bold"), 
+        plot.subtitle = element_text(size = 12.5, face = "italic"),
+        axis.title.x = element_text(size = 12), axis.title.y = element_text(size = 12),
+        axis.text.x = element_text(size=9.8),
+        legend.title=element_text(size = 12))+
+  scale_x_continuous(name="Month", breaks = 1:12)
+
+#Question 5: Daily order trend vs daily average
+
+# Convert Order.Date to Date and extract date only
+df1$order_date <- as.Date(df1$order_date)
+
+# Filter for only 2019 data
+df1_2019 <- df1 %>%
+  filter(year == 2019)
+
+# Calculate total quantity ordered for each day
+daily_trend <- df1_2019 %>%
+  group_by(order_date) %>%
+  summarise(Total_Quantity = sum(quantity_ordered), Average_Quantity = mean(quantity_ordered))
+
+daily_trend_month <-df1_2019 %>%
+  group_by(day) %>%
+  summarise(Total_Quantity_sold = sum(quantity_ordered), Average_Quantity_sold = mean(quantity_ordered))
+
+df_plot <- daily_trend
+
+# Create the plot
+ggplot(df_plot, aes(x = order_date)) +
+  geom_line(aes(y = Total_Quantity), color = '#4895ef', size = 1) +
+  geom_line(aes(y = Average_Quantity * 500), color = '#f72585', size = 1) +
+  labs(x = 'Month', y = 'Quantity Ordered', title = 'Daily Order Trend vs Daily Average Order') +
+  scale_y_continuous(sec.axis = sec_axis(~.*0.0025, name = "Daily average Orders")) +
+  scale_x_date(breaks = as.Date(paste0("2019-", 1:12, "-01")), labels = date_format("%m")) +
+  theme_minimal() + 
+  theme(plot.title = element_text(size = 13, face = "bold"), 
+        plot.subtitle = element_text(size = 12.5, face = "italic"),
+        axis.title.x = element_text(size = 12), axis.title.y = element_text(size = 12),
+        axis.text.x = element_text(size=9.8),
+        legend.title=element_text(size = 12))
+
+
+## Day in each month total order
+
+df_day <- df1_2019 %>%
+  group_by(day) %>%
+  summarise(Total_Orders = sum(quantity_ordered))
+
+
+ggplot(df_day, aes(x=day, y=Total_Orders)) +
+  geom_line(color="#4895ef", size=1) +
+  geom_point(color="#4895ef", size=1.5) +
+  labs(x = 'Date within a month', y = 'Quantity Ordered', title = 'Daily Order Trend across 12 months') +
+  theme_minimal() + 
+  theme(plot.title = element_text(size = 13, face = "bold"), 
+        plot.subtitle = element_text(size = 12.5, face = "italic"),
+        axis.title.x = element_text(size = 12), axis.title.y = element_text(size = 12),
+        axis.text.x = element_text(size=9.8),
+        legend.title=element_text(size = 12))
+
+
+#Question 6: Hourly order trend vs hourly average order
+# Convert Time to Hour and extract hour
+df1$hour <- format(strptime(df1$time, format = "%H"), format = "%H")
+
+# Calculate total quantity ordered for each hour
+hourly_order_trend <- df1 %>%
+  group_by(hour) %>%
+  summarise(Total_Quantity = sum(quantity_ordered), Average_Quantity = mean(quantity_ordered))
+
+# Calculate average quantity ordered per hour
+hourly_average_order <- df1 %>%
+  group_by(hour) %>%
+  summarise(Average_Quantity = mean(quantity_ordered))
+
+# Create a new dataframe for plotting
+df_plot <- hourly_order_trend
+
+# Add a new column for the hourly average order
+df_plot$Average_Quantity <- hourly_average_order$Average_Quantity
+
+# Create the plot
+ggplot(hourly_order_trend, aes(x = hour, y = Total_Quantity, fill = Total_Quantity)) +
+  geom_bar(stat = "identity") +
+  scale_fill_gradient(low = "#4cc9f0", high = "#f72585", breaks = seq(0, 15000, 5000), 
+                      labels = scales::comma) +
+  labs(x = "Hour", y = "Total Orders", 
+       title = "Total Hourly Order Trend.") +
+  theme_minimal() +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
+        plot.title = element_text(size = 13, face = "bold"), 
+        plot.subtitle = element_text(size = 12.5, face = "italic"),
+        axis.title.x = element_text(size = 12), axis.title.y = element_text(size = 12),
+        axis.text.x = element_text(size=9.8),
+        legend.title=element_text(size = 12)) +
+  theme(legend.position="bottom")
+
+
+ggplot(hourly_order_trend, aes(x =hour, y=Average_Quantity)) +
+  geom_point(color = "#f72585", size = 1)+
+  geom_line(aes(group = 1), color = "#f72585", size = 1.3) +
+  labs(x = "Hour", y = "Average Orders", 
+       title = "Hourly Average Orders.") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 13, face = "bold"), 
+        plot.subtitle = element_text(size = 12.5, face = "italic"),
+        axis.title.x = element_text(size = 12), axis.title.y = element_text(size = 12),
+        axis.text.x = element_text(size=9.8),
+        legend.title=element_text(size = 12))
+```
+
+
+Task 4: Predictive analytics
+```{r}
+cleandata <- clean_data
+#check structure
+head(cleandata)
+str(cleandata)
+# Create a new column 'Sale' which is 'Price Each' multiplied by 'Quantity Ordered'
+cleandata <- cleandata %>%
+  mutate(sales = `price_each` * `quantity_ordered`)
+#group the data with variables needed to for plot
+by_date <- cleandata %>%
+  group_by(year, month, day) %>%
+  summarise(
+    total_quantity_ordered = sum(quantity_ordered),
+    total_sales = sum(sales)) %>%
+  select(year, month, day, total_quantity_ordered, total_sales)
+## Because the original data is sorted by month, it is necessary to randomize all rows together so that when dividing 60/40 between train and test data, categorical variables (date, month, year) will exist in both subsets.
+
+# Set seed for reproducibility
+set.seed(123)
+# Randomize the rows of cleandata
+by_date <- by_date[sample(nrow(by_date)), ]
+# Check the first few rows to verify randomization
+head(by_date)
+str(by_date)
+
+
+######KNN model
+# Add a new column called sales_evaluation based on total_sales
+by_date$sales_evaluation <- ifelse(by_date$total_sales < 60000, "poor",
+                                     ifelse(by_date$total_sales >= 60000 & by_date$total_sales <= 100000, "average", "good"))
+
+by_date$sales_evaluation <- as.factor(by_date$sales_evaluation)
+#Build the model
+#Data splicing
+trainingset <- by_date[1:235, 1:4]
+testset <- by_date[236:392, 1:4]
+
+#split the diagnosis into training and test outcome sets
+trainingOutcomes <- by_date[1:235, 6]
+testOutcomes <- by_date[236:392, 6]
+
+# Extract the values from trainingOutcomes using unlist()
+trainingOutcomes <- unlist(by_date[1:235, "sales_evaluation"])
+# Extract the values from testOutcomes using unlist()
+testOutcomes <- unlist(by_date[236:392, "sales_evaluation"])
+
+#Apply KNN algorithm to trainingSet and trainingOutcomes
+predictions <- knn(train = trainingset, cl = trainingOutcomes, k = 21, 
+                   test = testset)
+#Display predictions
+predictions
+
+#Model Evaluation
+table(testOutcomes, predictions)
+
+ #Finding accuracy
+actuals_preds <- data.frame(cbind(actuals=testOutcomes, predicted=predictions))
+correlation_accuracy <- cor(actuals_preds)
+head(actuals_preds)
+
+# after observing the table of differences between the actual and predictions, it can be seen that the K-nearest neighbor predict quite well the sales range with the correlation between the prediction and actual is 0.73.
+
+
+
+#######Predictive model
+#First, split the "accessories" dataset into two different sets:
+# one for training the model and the other for validating it (ratio 60/40)
+train_data = by_date[1:235,];
+test_data  = by_date[236:392,];
+
+#Use the Sales column to check the quality of the prediction against actual values
+actual_sales <- test_data$total_sales;
+
+###Model 1: Use lm to create a linear regression model, trained with the training data set
+model_lm <- lm(total_sales ~ year + month + day + total_quantity_ordered, data = train_data)
+
+#Use linear model to make predictions using the test data set.
+predict_lm <- predict(model_lm, test_data)
+
+#Add back values
+predict_lm <- data.frame(daily_sales_pred = predict_lm, daily_sales = test_data$total_sales, 
+                         year = test_data$year, month = test_data$month,
+                         day = test_data$day, 
+                         total_quantity_ordered = test_data$total_quantity_ordered)
+
+
+###Model 2: Use rpart to create a decision tree model, trained with the training data set
+model_rpart <- rpart(total_sales ~ year + month + day + total_quantity_ordered, data = train_data)
+
+#Use linear model to make predictions using the test data set.
+predict_rpart <- predict(model_rpart, test_data)
+
+#Add back values
+predict_rpart <- data.frame(daily_sales_pred = predict_rpart, daily_sales = test_data$total_sales, 
+                         year = test_data$year, month = test_data$month,
+                         day = test_data$day, 
+                        total_quantity_ordered = test_data$total_quantity_ordered)
+
+# Calculate residuals
+residuals_lm <- predict_lm$daily_sales - predict_lm$daily_sales_pred
+residuals_rpart <- predict_rpart$daily_sales - predict_rpart$daily_sales_pred
+
+# Calculate RMSE for Linear Regression
+mse_lm <- mean(residuals_lm^2)
+rmse_lm <- sqrt(mse_lm)
+
+# Calculate RMSE for Decision Tree
+mse_rpart <- mean(residuals_rpart^2)
+rmse_rpart <- sqrt(mse_rpart)
+
+# Print the RMSE values
+print(paste("RMSE for Linear Regression Model:", rmse_lm))
+print(paste("RMSE for Decision Tree Model:", rmse_rpart))
+
+# Create data frames for the differences
+lm_data <- data.frame(Index = 1:length(predict_lm$daily_sales_pred), 
+                      Difference = predict_lm$daily_sales_pred - predict_lm$daily_sales)
+
+rpart_data <- data.frame(Index = 1:length(predict_rpart$daily_sales_pred), 
+                         Difference = predict_rpart$daily_sales_pred - predict_rpart$daily_sales)
+
+# Plot using ggplot2
+ggplot(lm_data, aes(x = Index, y = Difference)) +
+  geom_point(color = "blue") +
+  geom_smooth(method = "loess", color = "red", span = 0.5) +
+  ggtitle("Difference between predicted and actual. lm") +
+  xlab("Index") + ylab("Difference") + theme(text=element_text(size=20)) + theme(plot.title = element_text(hjust = 0.5))
+
+ggplot(rpart_data, aes(x = Index, y = Difference)) +
+  geom_point(color = "red") +
+  geom_smooth(method = "loess", color = "blue", span = 0.5) +
+  ggtitle("Difference between predicted and actual. rpart") +
+  xlab("Index") + ylab("Difference") + theme(text=element_text(size=20)) + theme(plot.title = element_text(hjust = 0.5))
+#Comment: Overall it can be seen that the 2 model perform quite good in predicting price based on quantity and the date ordered.However, it can be seen that the linear model's difference between predicted and actual data has the tendency to gather more around 0 deviation while the regression tree are more scattered. Hence, It can be conclude that the linear model is better to predict majority of the daily sales.
+
+# Plot the regression lines over the actual data
+ggplot(test_data, aes(x = total_quantity_ordered, y = total_sales)) +
+  geom_point(color = "blue", alpha = 0.5) +
+  geom_line(data = predict_lm, aes(x = total_quantity_ordered, y = daily_sales_pred, color = "salmon")) +
+  geom_line(data = predict_rpart, aes(x = total_quantity_ordered, y = daily_sales_pred, color = "lightgreen")) +
+  scale_color_manual(values = c("salmon", "lightgreen"), 
+                     labels = c("Linear Model", "Regression Tree")) +
+  ggtitle("Regression Lines compare to Real Data") +
+  xlab("Total Quantity Ordered") + ylab("Total Sales") +  labs(color = NULL) +
+  theme_light() + theme(text=element_text(size=20)) + theme(plot.title = element_text(hjust = 0.5))
+
+
+
+# Plot predicted sales by month with a regression line
+ggplot(predict_lm, aes(x = as.numeric(month), y = daily_sales_pred)) +
+  geom_point(color = "blue") + 
+  geom_smooth(method = "lm", se = FALSE, color = "red") + 
+  ggtitle("Predicted Sales by Month (Linear Model)") +
+  xlab("Month") + ylab("Predicted Sales") + 
+  scale_x_continuous(breaks = 1:12, labels = month.name) + 
+  theme(text = element_text(size = 20), plot.title = element_text(hjust = 0.5))
+```
+
